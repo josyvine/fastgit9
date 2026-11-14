@@ -172,3 +172,12 @@
 -keepclassmembers class com.vineyard.fastgit.app.R$* {
     public static <fields>;
 }
+
+# ===================================================================
+# 12. Google Mobile Ads (AdMob) SDK Protection
+# ===================================================================
+
+-keep class com.google.android.gms.ads.** { *; }
+-keep class com.google.ads.** { *; }
+-dontwarn com.google.android.gms.ads.**
+-dontwarn com.google.ads.**
