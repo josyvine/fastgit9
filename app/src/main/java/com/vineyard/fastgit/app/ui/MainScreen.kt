@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.vineyard.fastgit.app.models.Repository
+import com.vineyard.fastgit.app.ui.components.AdMobBanner
 import com.vineyard.fastgit.app.ui.components.LiveLogConsoleOverlay
 import com.vineyard.fastgit.app.ui.screens.*
 import com.vineyard.fastgit.app.ui.theme.*
@@ -99,46 +100,60 @@ fun MainScreen(
         } else {
             Scaffold(
                 bottomBar = {
-                    NavigationBar(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        contentColor = MaterialTheme.colorScheme.primary,
-                        tonalElevation = 8.dp
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surface)
                     ) {
-                        navItems.forEachIndexed { index, tab ->
-                            val isSelected = pagerState.currentPage == index
-                            val activeColor = MaterialTheme.colorScheme.primary
-                            val inactiveColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        NavigationBar(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            contentColor = MaterialTheme.colorScheme.primary,
+                            tonalElevation = 8.dp,
+                            windowInsets = WindowInsets(0, 0, 0, 0)
+                        ) {
+                            navItems.forEachIndexed { index, tab ->
+                                val isSelected = pagerState.currentPage == index
+                                val activeColor = MaterialTheme.colorScheme.primary
+                                val inactiveColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
 
-                            NavigationBarItem(
-                                selected = isSelected,
-                                onClick = {
-                                    coroutineScope.launch {
-                                        pagerState.animateScrollToPage(index)
-                                    }
-                                },
-                                icon = {
-                                    Icon(
-                                        imageVector = if (isSelected) tab.selectedIcon else tab.icon,
-                                        contentDescription = tab.title,
-                                        tint = if (isSelected) activeColor else inactiveColor
+                                NavigationBarItem(
+                                    selected = isSelected,
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            pagerState.animateScrollToPage(index)
+                                        }
+                                    },
+                                    icon = {
+                                        Icon(
+                                            imageVector = if (isSelected) tab.selectedIcon else tab.icon,
+                                            contentDescription = tab.title,
+                                            tint = if (isSelected) activeColor else inactiveColor
+                                        )
+                                    },
+                                    label = {
+                                        Text(
+                                            text = tab.title,
+                                            fontSize = 11.sp,
+                                            color = if (isSelected) activeColor else inactiveColor
+                                        )
+                                    },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        indicatorColor = activeColor.copy(alpha = 0.15f),
+                                        selectedIconColor = activeColor,
+                                        selectedTextColor = activeColor,
+                                        unselectedIconColor = inactiveColor,
+                                        unselectedTextColor = inactiveColor
                                     )
-                                },
-                                label = {
-                                    Text(
-                                        text = tab.title,
-                                        fontSize = 11.sp,
-                                        color = if (isSelected) activeColor else inactiveColor
-                                    )
-                                },
-                                colors = NavigationBarItemDefaults.colors(
-                                    indicatorColor = activeColor.copy(alpha = 0.15f),
-                                    selectedIconColor = activeColor,
-                                    selectedTextColor = activeColor,
-                                    unselectedIconColor = inactiveColor,
-                                    unselectedTextColor = inactiveColor
                                 )
-                            )
+                            }
                         }
+
+                        // AdMob Banner Ad placed at the very footer area
+                        AdMobBanner(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .navigationBarsPadding()
+                        )
                     }
                 },
                 containerColor = MaterialTheme.colorScheme.background
