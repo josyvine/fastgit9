@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
@@ -32,6 +33,8 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.vineyard.fastgit.app.models.Repository
 import com.vineyard.fastgit.app.ui.components.AccountsBottomSheet
+import com.vineyard.fastgit.app.ui.components.ContactUsFullScreenDialog
+import com.vineyard.fastgit.app.ui.components.SettingsHelpContent
 import com.vineyard.fastgit.app.ui.theme.*
 import com.vineyard.fastgit.app.viewmodel.AuthViewModel
 import com.vineyard.fastgit.app.viewmodel.SettingsViewModel
@@ -64,8 +67,14 @@ fun SettingsScreen(
     val isDownloadingUrls by settingsViewModel.isDownloadingUrls.collectAsState()
     val downloadStep by settingsViewModel.downloadStep.collectAsState()
 
+    // Contact Us Feature States
+    val isSendingContact by settingsViewModel.isSendingContact.collectAsState()
+    val contactSubmitSuccess by settingsViewModel.contactSubmitSuccess.collectAsState()
+    val contactErrorMessage by settingsViewModel.contactErrorMessage.collectAsState()
+
     var showLogoutDialog by remember { mutableStateOf(false) }
     var showAccountsSheet by remember { mutableStateOf(false) }
+    var showContactUsScreen by remember { mutableStateOf(false) }
 
     // Local Form Input States
     var showCreateForm by remember { mutableStateOf(false) }
@@ -95,6 +104,7 @@ fun SettingsScreen(
         SettingsTab("Keys", Icons.Default.VpnKey),
         SettingsTab("URLs", Icons.Default.CloudDownload),
         SettingsTab("Auth", Icons.Default.Security),
+        SettingsTab("Help", Icons.AutoMirrored.Filled.HelpOutline),
         SettingsTab("About", Icons.Default.Info)
     )
 
@@ -103,6 +113,13 @@ fun SettingsScreen(
         LaunchedEffect(msg) {
             Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
             settingsViewModel.clearStatus()
+        }
+    }
+
+    LaunchedEffect(contactSubmitSuccess) {
+        if (contactSubmitSuccess) {
+            showContactUsScreen = false
+            settingsViewModel.resetContactState()
         }
     }
 
@@ -767,6 +784,11 @@ fun SettingsScreen(
                 }
 
                 4 -> {
+                    // Complete A-to-Z App Guide
+                    SettingsHelpContent()
+                }
+
+                5 -> {
                     // About & Version Card
                     Card(
                         shape = RoundedCornerShape(12.dp),
@@ -780,9 +802,51 @@ fun SettingsScreen(
                             Text("Built with Kotlin, Coroutines & Jetpack Compose for Android", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f), fontSize = 12.sp)
                         }
                     }
+
+                    // Contact Us Card directly below About FastGit
+                    Card(
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        border = ButtonDefaults.outlinedButtonBorder(enabled = true),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text(
+                                text = "Support & Feedback",
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontSize = 14.sp
+                            )
+
+                            SettingsRow(
+                                icon = Icons.Default.Email,
+                                title = "Contact Us",
+                                subtitle = "Send a message, feedback, or bug report",
+                                onClick = {
+                                    settingsViewModel.resetContactState()
+                                    showContactUsScreen = true
+                                }
+                            )
+                        }
+                    }
                 }
             }
         }
+    }
+
+    // Full-Screen Contact Us Message Screen
+    if (showContactUsScreen) {
+        ContactUsFullScreenDialog(
+            isSending = isSendingContact,
+            errorMessage = contactErrorMessage,
+            onSend = { name, email, message ->
+                settingsViewModel.sendContactMessage(name, email, message)
+            },
+            onDismiss = {
+                showContactUsScreen = false
+                settingsViewModel.resetContactState()
+            }
+        )
     }
 
     // Official-style Accounts Management Bottom Sheet
