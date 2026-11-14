@@ -2,6 +2,7 @@ package com.vineyard.fastgit.app.viewmodel
 
 import android.app.Application
 import android.util.Base64
+import android.util.Patterns
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.goterl.lazysodium.LazySodiumAndroid
@@ -20,6 +21,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
 import java.nio.charset.StandardCharsets
 
 class SettingsViewModel(application: Application) : AndroidViewModel(application) {
@@ -58,6 +64,18 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     private val _downloadStep = MutableStateFlow("")
     val downloadStep: StateFlow<String> = _downloadStep
+
+    // Contact Us (Formspree) States
+    private val _isSendingContact = MutableStateFlow(false)
+    val isSendingContact: StateFlow<Boolean> = _isSendingContact
+
+    private val _contactSubmitSuccess = MutableStateFlow(false)
+    val contactSubmitSuccess: StateFlow<Boolean> = _contactSubmitSuccess
+
+    private val _contactErrorMessage = MutableStateFlow<String?>(null)
+    val contactErrorMessage: StateFlow<String?> = _contactErrorMessage
+
+    private val contactClient by lazy { OkHttpClient() }
 
     init {
         _themeMode.value = tokenManager.getThemeMode()
@@ -466,6 +484,94 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             Base64.encodeToString(cipherBytes, Base64.NO_WRAP)
         } catch (e: Exception) {
             throw RuntimeException("Libsodium Sealed Box encryption failed: ${e.message}", e)
+        }
+    }
+
+    // Contact Us Formspree Submission
+    fun resetContactState() {
+        _isSendingContact.value = false
+        _contactSubmitSuccess.value = false
+        _contactErrorMessage.value = null
+    }
+
+    fun sendContactMessage(name: String, email: String, message: String) {
+        val cleanName = name.trim()
+        val cleanEmail = email.trim()
+        val cleanMessage = message.trim()
+
+        if (cleanName.isBlank()) {
+            _contactErrorMessage.value = "Please enter your name."
+            return
+        }
+        if (cleanEmail.isBlank() || !Patterns.EMAIL_ADDRESS.matcher(cleanEmail).matches()) {
+            _contactErrorMessage.value = "Please enter a valid email address."
+            return
+        }
+        if (cleanMessage.isBlank()) {
+            _contactErrorMessage.value = "Please enter your message."
+            return
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            withContext(Dispatchers.Main) {
+                _isSendingContact.value = true
+                _contactErrorMessage.value = null
+                _contactSubmitSuccess.value = false
+            }
+
+            try {
+                val payload = JSONObject().apply {
+                    put("name", cleanName)
+                    put("email", cleanEmail)
+                    put("message", cleanMessage)
+                    put("_subject", "FastGit Contact Us from $cleanName")
+                }.toString()
+
+                val request = Request.Builder()
+                    .url("https://formspree.io/f/xyzenlao")
+                    .header("Accept", "application/json")
+                    .post(payload.toRequestBody("application/json; charset=utf-8".toMediaType()))
+                    .build()
+
+                contactClient.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        AppLogger.s("ContactUs", "Message sent successfully via Formspree.")
+                        withContext(Dispatchers.Main) {
+                            _contactSubmitSuccess.value = true
+                            _statusMessage.value = "Message sent successfully! Thank you for reaching out."
+                        }
+                    } else {
+                        val rawError = response.body?.string().orEmpty()
+                        val parsedError = try {
+                            val json = JSONObject(rawError)
+                            json.optString("error").ifBlank {
+                                val errorsArr = json.optJSONArray("errors")
+                                if (errorsArr != null && errorsArr.length() > 0) {
+                                    errorsArr.getJSONObject(0).optString("message", "HTTP ${response.code}")
+                                } else {
+                                    "HTTP ${response.code}"
+                                }
+                            }
+                        } catch (_: Exception) {
+                            "HTTP ${response.code} ${response.message}"
+                        }
+
+                        AppLogger.e("ContactUs", "Formspree error: $parsedError")
+                        withContext(Dispatchers.Main) {
+                            _contactErrorMessage.value = "Failed to send message: $parsedError"
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                AppLogger.e("ContactUs", "Contact Us network error: ${e.message}", e)
+                withContext(Dispatchers.Main) {
+                    _contactErrorMessage.value = "Network error: ${e.message ?: "Unable to send message"}"
+                }
+            } finally {
+                withContext(Dispatchers.Main) {
+                    _isSendingContact.value = false
+                }
+            }
         }
     }
 
