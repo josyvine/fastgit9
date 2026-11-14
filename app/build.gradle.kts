@@ -122,7 +122,7 @@ dependencies {
   // Sign-In via Credential Manager:
   // implementation(libs.firebase.auth)
   // implementation(libs.androidx.credentials)
-  // implementation(libs.androidx.credentials.play.services)
+  // implementation(libs.androidx.credentials.play-services)
   // implementation(libs.googleid)
   implementation(libs.firebase.appcheck.recaptcha)
   implementation(libs.kotlinx.coroutines.android)
@@ -130,6 +130,7 @@ dependencies {
   implementation(libs.logging.interceptor)
   implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
+  implementation(libs.play.services.ads)
   // implementation(libs.play.services.location)
   implementation(libs.retrofit)
   testImplementation(libs.androidx.compose.ui.test.junit4)
