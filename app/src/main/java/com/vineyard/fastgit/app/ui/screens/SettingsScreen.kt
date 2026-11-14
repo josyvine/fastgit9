@@ -282,6 +282,7 @@ fun SettingsScreen(
                                     modifier = Modifier
                                         .background(MaterialTheme.colorScheme.surface)
                                         .fillMaxWidth(0.85f)
+                                        .heightIn(max = 360.dp)
                                 ) {
                                     repositories.forEach { repo ->
                                         DropdownMenuItem(
@@ -539,6 +540,7 @@ fun SettingsScreen(
                                     modifier = Modifier
                                         .background(MaterialTheme.colorScheme.surface)
                                         .fillMaxWidth(0.85f)
+                                        .heightIn(max = 360.dp)
                                 ) {
                                     repositories.forEach { repo ->
                                         DropdownMenuItem(
