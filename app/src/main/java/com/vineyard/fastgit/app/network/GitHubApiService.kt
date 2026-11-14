@@ -19,8 +19,16 @@ interface GitHubApiService {
     suspend fun getUserRepositories(
         @Query("sort") sort: String = "updated",
         @Query("direction") direction: String = "desc",
-        @Query("per_page") perPage: Int = 50
+        @Query("per_page") perPage: Int = 100,
+        @Query("page") page: Int = 1
     ): List<Repository>
+
+    @GET("search/repositories")
+    suspend fun searchRepositories(
+        @Query("q") query: String,
+        @Query("per_page") perPage: Int = 30,
+        @Query("page") page: Int = 1
+    ): RepositorySearchResponse
 
     @GET("repos/{owner}/{repo}")
     suspend fun getRepository(
