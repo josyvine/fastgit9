@@ -17,13 +17,17 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.google.android.gms.ads.MobileAds
 import com.vineyard.fastgit.app.ui.MainScreen
 import com.vineyard.fastgit.app.ui.screens.AuthScreen
 import com.vineyard.fastgit.app.ui.theme.FastGitTheme
 import com.vineyard.fastgit.app.utils.AppLogger
 import com.vineyard.fastgit.app.viewmodel.AuthViewModel
 import com.vineyard.fastgit.app.viewmodel.SettingsViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
@@ -41,6 +45,15 @@ class MainActivity : ComponentActivity() {
 
         // Initialize Global Crash Handler & Public SDCARD Log directory 'fastgit log'
         AppLogger.initCrashHandler(this)
+
+        // Initialize Google Mobile Ads SDK on a background thread
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                MobileAds.initialize(this@MainActivity) {}
+            } catch (e: Throwable) {
+                AppLogger.e("MainActivity", "MobileAds initialization failed: ${e.message}")
+            }
+        }
 
         // Request storage permissions if needed
         checkAndRequestStoragePermissions()
