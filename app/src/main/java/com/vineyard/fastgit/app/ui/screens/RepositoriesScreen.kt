@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -41,6 +42,13 @@ fun RepositoriesScreen(
     val searchQuery by repositoryViewModel.searchQuery.collectAsState()
     val selectedFilter by repositoryViewModel.selectedFilter.collectAsState()
     val isLoading by repositoryViewModel.isLoading.collectAsState()
+    val isLoadingMore by repositoryViewModel.isLoadingMore.collectAsState()
+    val hasMore by repositoryViewModel.hasMore.collectAsState()
+    val publicSearchResults by repositoryViewModel.publicSearchResults.collectAsState()
+    val isSearchingPublic by repositoryViewModel.isSearchingPublic.collectAsState()
+    val isLoadingMorePublicSearch by repositoryViewModel.isLoadingMorePublicSearch.collectAsState()
+    val hasMorePublicSearch by repositoryViewModel.hasMorePublicSearch.collectAsState()
+    val publicSearchError by repositoryViewModel.publicSearchError.collectAsState()
     val statusMessage by repositoryViewModel.statusMessage.collectAsState()
     val importProgress by repositoryViewModel.importProgress.collectAsState()
 
@@ -50,10 +58,13 @@ fun RepositoriesScreen(
     var isRefreshing by remember { mutableStateOf(false) }
 
     val coroutineScope = rememberCoroutineScope()
+    val listState = rememberLazyListState()
     val filterOptions = listOf("All", "Public", "Private", "Sources", "Forks")
+    val isSearching = searchQuery.isNotBlank()
 
     val filteredRepos = repositories.filter { repo ->
         val matchesQuery = repo.name.contains(searchQuery, ignoreCase = true) ||
+                repo.fullName.contains(searchQuery, ignoreCase = true) ||
                 (repo.description?.contains(searchQuery, ignoreCase = true) == true)
 
         val matchesFilter = when (selectedFilter) {
@@ -65,6 +76,54 @@ fun RepositoriesScreen(
         }
 
         matchesQuery && matchesFilter
+    }
+
+    val ownRepoIds = remember(filteredRepos) { filteredRepos.map { it.id }.toSet() }
+    val filteredPublicRepos = if (isSearching) {
+        publicSearchResults.filter { repo ->
+            if (repo.id in ownRepoIds) return@filter false
+            when (selectedFilter) {
+                "Public" -> !repo.private
+                "Private" -> repo.private
+                "Forks" -> repo.fork
+                "Sources" -> !repo.fork
+                else -> true
+            }
+        }
+    } else {
+        emptyList()
+    }
+
+    val shouldLoadMore by remember {
+        derivedStateOf {
+            val layoutInfo = listState.layoutInfo
+            val totalItemsCount = layoutInfo.totalItemsCount
+            val lastVisibleItemIndex = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            totalItemsCount > 0 && lastVisibleItemIndex >= totalItemsCount - 5
+        }
+    }
+
+    LaunchedEffect(
+        shouldLoadMore,
+        isSearching,
+        hasMore,
+        isLoadingMore,
+        isLoading,
+        hasMorePublicSearch,
+        isLoadingMorePublicSearch,
+        isSearchingPublic
+    ) {
+        if (shouldLoadMore) {
+            if (isSearching) {
+                if (hasMorePublicSearch && !isLoadingMorePublicSearch && !isSearchingPublic) {
+                    repositoryViewModel.loadMorePublicSearchResults()
+                }
+            } else {
+                if (hasMore && !isLoadingMore && !isLoading) {
+                    repositoryViewModel.loadMoreRepositories()
+                }
+            }
+        }
     }
 
     Box(
@@ -171,27 +230,45 @@ fun RepositoriesScreen(
                     },
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    if (isLoading && importProgress == null && !isRefreshing) {
+                    if (((isLoading && importProgress == null && !isRefreshing) ||
+                                (isSearching && isSearchingPublic && filteredRepos.isEmpty() && filteredPublicRepos.isEmpty()))
+                    ) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                         }
-                    } else if (filteredRepos.isEmpty()) {
+                    } else if (filteredRepos.isEmpty() && filteredPublicRepos.isEmpty() && !isLoadingMore) {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .verticalScroll(rememberScrollState()),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text("No matching repositories found.", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+                            Text(
+                                text = publicSearchError ?: "No matching repositories found.",
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                            )
                         }
                     } else {
                         LazyColumn(
+                            state = listState,
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                             modifier = Modifier.fillMaxSize()
                         ) {
-                            items(filteredRepos) { repo ->
+                            if (isSearching && filteredRepos.isNotEmpty() && filteredPublicRepos.isNotEmpty()) {
+                                item(key = "header_own") {
+                                    Text(
+                                        text = "Your Repositories",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                                        modifier = Modifier.padding(vertical = 4.dp)
+                                    )
+                                }
+                            }
+
+                            items(filteredRepos, key = { "own_${it.id}" }) { repo ->
                                 RepoCardItem(
-                                    repo = repo, 
+                                    repo = repo,
                                     onClick = { onSelectRepo(repo) },
                                     onDeleteClick = { repoToDelete = repo },
                                     onDownloadZipClick = {
@@ -203,6 +280,65 @@ fun RepositoriesScreen(
                                         )
                                     }
                                 )
+                            }
+
+                            if (isSearching && (filteredPublicRepos.isNotEmpty() || isSearchingPublic)) {
+                                item(key = "header_public") {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(top = 6.dp, bottom = 2.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = "GitHub Public Repositories",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                                        )
+                                        if (isSearchingPublic) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(16.dp),
+                                                strokeWidth = 2.dp,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            items(filteredPublicRepos, key = { "pub_${it.id}" }) { repo ->
+                                RepoCardItem(
+                                    repo = repo,
+                                    onClick = { onSelectRepo(repo) },
+                                    onDeleteClick = { repoToDelete = repo },
+                                    onDownloadZipClick = {
+                                        repositoryViewModel.downloadRepositoryAsZip(
+                                            owner = repo.owner?.login ?: "developer",
+                                            repoName = repo.name,
+                                            branch = repo.defaultBranch,
+                                            context = context
+                                        )
+                                    }
+                                )
+                            }
+
+                            if ((!isSearching && isLoadingMore) || (isSearching && isLoadingMorePublicSearch)) {
+                                item(key = "loading_more_indicator") {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 12.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(24.dp),
+                                            strokeWidth = 2.dp,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
