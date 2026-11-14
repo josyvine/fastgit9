@@ -515,6 +515,37 @@ class RepositoryViewModel(application: Application) : AndroidViewModel(applicati
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading
 
+    // Pagination state for loading all user repositories automatically on scroll
+    private val _isLoadingMore = MutableStateFlow(false)
+    val isLoadingMore: StateFlow<Boolean> = _isLoadingMore
+
+    private val _hasMore = MutableStateFlow(true)
+    val hasMore: StateFlow<Boolean> = _hasMore
+
+    private var currentPage = 1
+    private val pageSize = 100
+    private var loadMoreJob: Job? = null
+
+    // Public GitHub repository search state
+    private val _publicSearchResults = MutableStateFlow<List<Repository>>(emptyList())
+    val publicSearchResults: StateFlow<List<Repository>> = _publicSearchResults
+
+    private val _isSearchingPublic = MutableStateFlow(false)
+    val isSearchingPublic: StateFlow<Boolean> = _isSearchingPublic
+
+    private val _isLoadingMorePublicSearch = MutableStateFlow(false)
+    val isLoadingMorePublicSearch: StateFlow<Boolean> = _isLoadingMorePublicSearch
+
+    private val _hasMorePublicSearch = MutableStateFlow(false)
+    val hasMorePublicSearch: StateFlow<Boolean> = _hasMorePublicSearch
+
+    private val _publicSearchError = MutableStateFlow<String?>(null)
+    val publicSearchError: StateFlow<String?> = _publicSearchError
+
+    private var searchJob: Job? = null
+    private var publicSearchPage = 1
+    private val publicSearchPageSize = 30
+
     private val _statusMessage = MutableStateFlow<String?>(null)
     val statusMessage: StateFlow<String?> = _statusMessage
 
@@ -529,6 +560,90 @@ class RepositoryViewModel(application: Application) : AndroidViewModel(applicati
 
     fun onSearchQueryChange(query: String) {
         _searchQuery.value = query
+        val trimmed = query.trim()
+
+        searchJob?.cancel()
+        if (trimmed.isBlank()) {
+            _publicSearchResults.value = emptyList()
+            _isSearchingPublic.value = false
+            _isLoadingMorePublicSearch.value = false
+            _hasMorePublicSearch.value = false
+            _publicSearchError.value = null
+            return
+        }
+
+        if (tokenManager.isDemoMode()) return
+
+        // Ensure remaining user repo pages are also loaded in background so older private/own repos match locally
+        if (_hasMore.value && !_isLoadingMore.value && !_isLoading.value) {
+            loadRemainingUserRepositories()
+        }
+
+        searchJob = viewModelScope.launch {
+            delay(350L)
+            _isSearchingPublic.value = true
+            _publicSearchError.value = null
+            publicSearchPage = 1
+            try {
+                val api = RetrofitClient.getService(tokenManager)
+                val response = api.searchRepositories(
+                    query = trimmed,
+                    perPage = publicSearchPageSize,
+                    page = 1
+                )
+                if (_searchQuery.value.trim() == trimmed) {
+                    _publicSearchResults.value = response.items
+                    _hasMorePublicSearch.value =
+                        response.items.size >= publicSearchPageSize &&
+                            response.items.size < response.totalCount
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (_searchQuery.value.trim() == trimmed) {
+                    _publicSearchError.value = "Search failed: ${e.message}"
+                }
+            } finally {
+                _isSearchingPublic.value = false
+            }
+        }
+    }
+
+    fun loadMorePublicSearchResults() {
+        val trimmed = _searchQuery.value.trim()
+        if (trimmed.isBlank() ||
+            tokenManager.isDemoMode() ||
+            _isSearchingPublic.value ||
+            _isLoadingMorePublicSearch.value ||
+            !_hasMorePublicSearch.value
+        ) return
+
+        viewModelScope.launch {
+            _isLoadingMorePublicSearch.value = true
+            val nextPage = publicSearchPage + 1
+            try {
+                val api = RetrofitClient.getService(tokenManager)
+                val response = api.searchRepositories(
+                    query = trimmed,
+                    perPage = publicSearchPageSize,
+                    page = nextPage
+                )
+                if (_searchQuery.value.trim() == trimmed) {
+                    publicSearchPage = nextPage
+                    _publicSearchResults.value =
+                        (_publicSearchResults.value + response.items).distinctBy { it.id }
+                    _hasMorePublicSearch.value =
+                        response.items.size >= publicSearchPageSize &&
+                            _publicSearchResults.value.size < response.totalCount
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Keep existing search results on pagination error
+            } finally {
+                _isLoadingMorePublicSearch.value = false
+            }
+        }
     }
 
     fun onFilterSelect(filter: String) {
@@ -536,19 +651,82 @@ class RepositoryViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun fetchRepositories() {
+        loadMoreJob?.cancel()
         viewModelScope.launch {
             _isLoading.value = true
+            _isLoadingMore.value = false
+            currentPage = 1
             try {
                 if (tokenManager.isDemoMode()) {
                     _repositories.value = getSampleRepositories()
+                    _hasMore.value = false
                 } else {
                     val api = RetrofitClient.getService(tokenManager)
-                    _repositories.value = api.getUserRepositories()
+                    val firstPage = api.getUserRepositories(perPage = pageSize, page = 1)
+                    _repositories.value = firstPage
+                    _hasMore.value = firstPage.size >= pageSize
                 }
             } catch (e: Exception) {
                 _repositories.value = getSampleRepositories()
+                _hasMore.value = false
             } finally {
                 _isLoading.value = false
+            }
+        }
+    }
+
+    fun loadMoreRepositories() {
+        if (tokenManager.isDemoMode() || _isLoading.value || _isLoadingMore.value || !_hasMore.value) {
+            return
+        }
+
+        loadMoreJob = viewModelScope.launch {
+            _isLoadingMore.value = true
+            try {
+                val api = RetrofitClient.getService(tokenManager)
+                val nextPage = currentPage + 1
+                val nextItems = api.getUserRepositories(perPage = pageSize, page = nextPage)
+                if (nextItems.isEmpty()) {
+                    _hasMore.value = false
+                } else {
+                    currentPage = nextPage
+                    _repositories.value = (_repositories.value + nextItems).distinctBy { it.id }
+                    _hasMore.value = nextItems.size >= pageSize
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Allow retry on next scroll
+            } finally {
+                _isLoadingMore.value = false
+            }
+        }
+    }
+
+    private fun loadRemainingUserRepositories() {
+        if (tokenManager.isDemoMode() || _isLoadingMore.value || !_hasMore.value) return
+
+        loadMoreJob = viewModelScope.launch {
+            _isLoadingMore.value = true
+            try {
+                val api = RetrofitClient.getService(tokenManager)
+                while (_hasMore.value && isActive) {
+                    val nextPage = currentPage + 1
+                    val nextItems = api.getUserRepositories(perPage = pageSize, page = nextPage)
+                    if (nextItems.isEmpty()) {
+                        _hasMore.value = false
+                    } else {
+                        currentPage = nextPage
+                        _repositories.value = (_repositories.value + nextItems).distinctBy { it.id }
+                        _hasMore.value = nextItems.size >= pageSize
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Ignore background preload error
+            } finally {
+                _isLoadingMore.value = false
             }
         }
     }
