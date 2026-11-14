@@ -158,8 +158,17 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             try {
                 val api = RetrofitClient.getService(tokenManager)
-                val repos = api.getUserRepositories()
-                _repositories.value = repos
+                val allRepos = mutableListOf<Repository>()
+                var page = 1
+                val pageSize = 100
+                while (true) {
+                    val pageRepos = api.getUserRepositories(perPage = pageSize, page = page)
+                    if (pageRepos.isEmpty()) break
+                    allRepos.addAll(pageRepos)
+                    _repositories.value = allRepos.distinctBy { it.id }
+                    if (pageRepos.size < pageSize) break
+                    page++
+                }
             } catch (e: Exception) {
                 AppLogger.e("Settings", "Failed to fetch repositories list: ${e.message}", e)
             }
