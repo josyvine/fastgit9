@@ -21,6 +21,10 @@
         android:requestLegacyExternalStorage="true"
         android:theme="@style/Theme.MyApplication">
 
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-2223803405403727~4305169872" />
+
         <activity
             android:name="com.vineyard.fastgit.app.MainActivity"
             android:exported="true"
