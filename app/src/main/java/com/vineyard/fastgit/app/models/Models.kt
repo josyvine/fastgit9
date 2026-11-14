@@ -58,6 +58,13 @@ data class Repository(
     @Json(name = "updated_at") val updatedAt: String? = null
 )
 
+@JsonClass(generateAdapter = true)
+data class RepositorySearchResponse(
+    @Json(name = "total_count") val totalCount: Int = 0,
+    @Json(name = "incomplete_results") val incompleteResults: Boolean = false,
+    val items: List<Repository> = emptyList()
+)
+
 data class FileItem(
     val name: String = "",
     val path: String = "",
