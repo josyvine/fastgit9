@@ -8,6 +8,7 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -23,9 +24,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -37,6 +41,7 @@ import com.vineyard.fastgit.app.ui.theme.GhTextSecondaryDark
 import com.vineyard.fastgit.app.utils.AppLogger
 import com.vineyard.fastgit.app.utils.LogEntry
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 @Composable
 fun LiveLogConsoleOverlay() {
@@ -63,6 +68,10 @@ fun LiveLogConsoleOverlay() {
 
     var showExportDialog by remember { mutableStateOf(false) }
     var exportedPathsList by remember { mutableStateOf<List<String>>(emptyList()) }
+
+    // Saved draggable position across minimize/expand toggles (-1f = default initial position)
+    var offsetX by remember { mutableFloatStateOf(-1f) }
+    var offsetY by remember { mutableFloatStateOf(-1f) }
 
     if (showExportDialog) {
         AlertDialog(
@@ -117,21 +126,68 @@ fun LiveLogConsoleOverlay() {
         )
     }
 
-    // Minimized Floating Circle / Pill (Always accessible at bottom-right)
+    // Minimized Floating Circle / Pill (Freely draggable anywhere on screen)
     if (isMinimized || !isOverlayVisible) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(bottom = 72.dp, end = 16.dp),
-            contentAlignment = Alignment.BottomEnd
+        BoxWithConstraints(
+            modifier = Modifier.fillMaxSize()
         ) {
+            val density = LocalDensity.current
+            val buttonSize = 56.dp
+            val buttonSizePx = with(density) { buttonSize.toPx() }
+            val edgePaddingPx = with(density) { 12.dp.toPx() }
+            val defaultRightMarginPx = with(density) { 16.dp.toPx() }
+            val defaultBottomClearancePx = with(density) { 156.dp.toPx() }
+            val statusTopPx = WindowInsets.statusBars.getTop(density).toFloat()
+            val navBottomPx = WindowInsets.navigationBars.getBottom(density).toFloat()
+
+            val maxWidthPx = constraints.maxWidth.toFloat()
+            val maxHeightPx = constraints.maxHeight.toFloat()
+
+            val minX = edgePaddingPx
+            val maxX = (maxWidthPx - buttonSizePx - edgePaddingPx).coerceAtLeast(minX)
+            val minY = statusTopPx + edgePaddingPx
+            val maxY = (maxHeightPx - buttonSizePx - navBottomPx - edgePaddingPx).coerceAtLeast(minY)
+
+            LaunchedEffect(maxWidthPx, maxHeightPx, minX, maxX, minY, maxY) {
+                if (maxWidthPx > 0f && maxHeightPx > 0f) {
+                    if (offsetX < 0f || offsetY < 0f) {
+                        offsetX = (maxWidthPx - buttonSizePx - defaultRightMarginPx).coerceIn(minX, maxX)
+                        offsetY = (maxHeightPx - buttonSizePx - navBottomPx - defaultBottomClearancePx).coerceIn(minY, maxY)
+                    } else {
+                        offsetX = offsetX.coerceIn(minX, maxX)
+                        offsetY = offsetY.coerceIn(minY, maxY)
+                    }
+                }
+            }
+
+            val currentX = if (offsetX < 0f) {
+                (maxWidthPx - buttonSizePx - defaultRightMarginPx).coerceIn(minX, maxX)
+            } else {
+                offsetX.coerceIn(minX, maxX)
+            }
+            val currentY = if (offsetY < 0f) {
+                (maxHeightPx - buttonSizePx - navBottomPx - defaultBottomClearancePx).coerceIn(minY, maxY)
+            } else {
+                offsetY.coerceIn(minY, maxY)
+            }
+
             Surface(
                 onClick = { AppLogger.expandOverlay() },
                 shape = CircleShape,
                 color = if (errorCount > 0) Color(0xFFD73A49) else MaterialTheme.colorScheme.primary,
                 shadowElevation = 8.dp,
                 modifier = Modifier
-                    .size(56.dp)
+                    .offset { IntOffset(currentX.roundToInt(), currentY.roundToInt()) }
+                    .size(buttonSize)
+                    .pointerInput(minX, maxX, minY, maxY) {
+                        detectDragGestures { change, dragAmount ->
+                            change.consume()
+                            val baseX = if (offsetX < 0f) currentX else offsetX
+                            val baseY = if (offsetY < 0f) currentY else offsetY
+                            offsetX = (baseX + dragAmount.x).coerceIn(minX, maxX)
+                            offsetY = (baseY + dragAmount.y).coerceIn(minY, maxY)
+                        }
+                    }
                     .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
             ) {
                 Box(
